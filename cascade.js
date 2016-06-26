@@ -19,8 +19,6 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 		 */
 		$messages: null,
 
-		mock: false,
-
 		/**
 		 * Current transaction identifier
 		 * @type {Number}
@@ -75,7 +73,7 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 
 			// Complete the messages with the context
 			messages.$current = context;
-			messages.$loader = $self;
+			messages.$cascade = $self;
 
 			// Share thins finest messages
 			$self.$messages = messages;
@@ -304,7 +302,7 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 		 *                                                       May also be usefull for CSS selectors to change the display of component
 		 *                                                       depending the placement inside the hierarchy.
 		 *                                                       The CSS selector (where X corresponds to hdindex) used to resolve this parent
-		 *                                                       will be: #_hierachy-X,[data-loader-hierachy=X],.data-loader-hierachy-X
+		 *                                                       will be: #_hierarchy-X,[data-cascade-hierarchy=X],.data-cascade-hierarchy-X
 		 *                            - {object} data            Data to save in the new context inside "$data".
 		 *                            - {string} parameters      Parameters as string to pass to the controler during the initialization.
 		 */
@@ -593,14 +591,14 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 
 		/**
 		 * Return the nested hierarical container inside the view of current context. The used CSS selector (where X corresponds to hdindex) used to resolve this parent will be:
-		 * #_hierachy-X,[data-loader-hierachy=X],.data-loader-hierachy-X
+		 * #_hierarchy-X,[data-cascade-hierarchy=X],.data-cascade-hierarchy-X
 		 * @param  {object} context The context to complete.
 		 * @param  {integer} hindex Optional hierarchical index to lookup. When undefined, will use the one of provided context plus one.
 		 * @return {jquery}         A jQuery object of the found element. Only the first match is returned.
 		 */
 		findNextContainer: function (context, hindex) {
 			hindex = hindex || context.$hindex + 1;
-			return context.$view.find('#_hierachy-' + hindex + ',[data-loader-hierachy="' + hindex + '"],.data-loader-hierachy-' + hindex).first();
+			return context.$view.find('#_hierarchy-' + hindex + ',[data-cascade-hierarchy="' + hindex + '"],.data-cascade-hierarchy-' + hindex).first();
 		},
 
 		finalize: function (context, parameters, transaction) {
@@ -617,8 +615,8 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 						// Parameters are managed by the current module
 						$.proxy(context.onHashChange, context)(parameters);
 					}
-					$self.trigger('hash', context.$url + (parameters ? '/' + parameters : ''), context);
 				}
+				$self.trigger('hash', context.$url + (parameters ? '/' + parameters : ''), context);
 				return true;
 			}
 			return false;
