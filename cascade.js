@@ -127,7 +127,7 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 			context.$parent && (typeof context.$parent.unload) === 'function' && $.proxy(context.$parent.unload, context.$parent)(context);
 
 			// Finally undefine the AMD modules
-			$self.undef(context.$require);
+			$self.undefModules(context.$require);
 			context.$unloaded = true;
 			return context.$parent;
 		},
