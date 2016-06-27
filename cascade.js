@@ -6,8 +6,6 @@
 define(['jquery', 'hashchange/hashchange'], function ($) {
 	var $self = {
 
-		manualDomReady: false,
-
 		/**
 		 * Current context hierarchy. Correspond to the last loaded context. $parent targets the ancestor context.
 		 * @type {[type]}
@@ -46,6 +44,29 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 		 */
 		viewBuilder: function (context) {
 			return context.$template ? context.$template(context.$messages) : '';
+		},
+
+		/**
+		 * AMD function to use to unload the given module.
+		 * @type {function}
+		 */
+		undef: requirejs.undef,
+
+		/**
+		 * Unload the given module from the AMD.
+		 * @param  {string}  module Module path as used to load the corresponding module.
+		 * @param  {boolean} True when the module should be undefined.
+		 */
+		shouldUndef: function (module) {
+			return !module.startsWith('text!') && !module.startsWith('i18n!');
+		},
+
+		undefModules: function (requiredList) {
+			for (var module in requiredList) {
+				if ({}.hasOwnProperty.call(requiredList, module) && $self.shouldUndef(requiredList[module])) {
+					$self.undefModule(requiredList[module]);
+				}
+			}
 		},
 
 		/**
@@ -111,14 +132,6 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 			return context.$parent;
 		},
 
-		undef: function (requiredList) {
-			for (var module in requiredList) {
-				if ({}.hasOwnProperty.call(requiredList, module)) {
-					requirejs.undef(requiredList[module]);
-				}
-			}
-		},
-
 		/**
 		 * Return the context chain as an array.
 		 * @param  {object} context A not null context.
@@ -153,7 +166,7 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 				return;
 			}
 			var fragments = url ? url.split('/') : [];
-			// Add implicit 'main' and root fragment
+			// Add implicit 'main' and root fragments
 			fragments.unshift('main');
 			fragments.unshift('root');
 
@@ -174,12 +187,23 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 			// Protected zone
 			require(['zone-protected'], function () {
 				// First load, ensure the first level is loaded before the private/public zone
-				$self.loadFragmentRecursive(context, transaction, fragments, 1, reload, function (childContext) {
-					// Private zone
-					require(['zone-private'], function () {
-						// Load the remaining context hierarchy
-						$self.loadFragmentRecursive(context.$child || childContext, transaction, fragments, 2, reload);
+				if ($self.session) {
+					$self.securedZoneLoader(context, transaction, fragments, reload);
+				} else {
+					$self.appendSpin($('[data-cascade-hierarchy="1"]').off().empty(), 'fa-3x');
+					$self.off('session').register('session', function () {
+						$self.securedZoneLoader(context, transaction, fragments, reload);
 					});
+				}
+			});
+		},
+
+		securedZoneLoader: function (context, transaction, fragments, reload) {
+			$self.loadFragmentRecursive(context, transaction, fragments, 1, reload, function (childContext) {
+				// Private zone
+				require(['zone-private'], function () {
+					// Load the remaining context hierarchy
+					$self.loadFragmentRecursive(context.$child || childContext, transaction, fragments, 2, reload);
 				});
 			});
 		},
@@ -548,25 +572,23 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 			});
 
 			$.fn.htmlNoStub = $.fn.html;
-			if (!$self.manualDomReady) {
-				// Stub the html update to complete DOM with post-actions
-				var originalHtmlMethod = $.fn.html;
-				$.fn.extend({
-					html: function () {
-						if (!$self.manualDomReady && arguments.length === 1) {
-							// proceed only for identified parent to manage correctly the selector
-							var id = this.attr('id');
-							if (id && id.substr(0, 2) !== 'jq') {
-								applicationManager.debug && traceDebug('Html content updated for ' + id);
-								var result = originalHtmlMethod.apply(this, arguments);
-								$self.trigger('html', this);
-								return result;
-							}
+			// Stub the html update to complete DOM with post-actions
+			var originalHtmlMethod = $.fn.html;
+			$.fn.extend({
+				html: function () {
+					if (arguments.length === 1) {
+						// proceed only for identified parent to manage correctly the selector
+						var id = this.attr('id');
+						if ((id && id.substr(0, 2) !== 'jq') || this.is('[data-cascade-hierarchy]')) {
+							applicationManager.debug && traceDebug('Html content updated for ' + id);
+							var result = originalHtmlMethod.apply(this, arguments);
+							$self.trigger('html', this);
+							return result;
 						}
-						return originalHtmlMethod.apply(this, arguments);
 					}
-				});
-			}
+					return originalHtmlMethod.apply(this, arguments);
+				}
+			});
 
 			// We can register the fragment listener now
 			$(function () {
@@ -625,6 +647,12 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 		register: function (event, listener) {
 			$self.callbacks[event] = $self.callbacks[event] || [];
 			$self.callbacks[event].push(listener);
+			return $self;
+		},
+
+		off: function (event) {
+			$self.callbacks[event] = [];
+			return $self;
 		},
 
 		/**
@@ -644,7 +672,7 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 					traceLog('Expected function, but got "' + typeof callbacks[i] + '" : ' + callbacks[i]);
 				}
 			}
-			return data;
+			return $self;
 		}
 	};
 	return $self;
