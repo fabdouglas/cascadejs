@@ -64,7 +64,7 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 		undefModules: function (requiredList) {
 			for (var module in requiredList) {
 				if ({}.hasOwnProperty.call(requiredList, module) && $self.shouldUndef(requiredList[module])) {
-					$self.undefModule(requiredList[module]);
+					$self.undef(requiredList[module]);
 				}
 			}
 		},
