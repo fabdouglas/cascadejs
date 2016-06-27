@@ -127,8 +127,8 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 			context.$parent && (typeof context.$parent.unload) === 'function' && $.proxy(context.$parent.unload, context.$parent)(context);
 
 			// Finally undefine the AMD modules
-			$self.undefModules(context.$require);
 			context.$unloaded = true;
+			$self.undefModules(context.$require);
 			return context.$parent;
 		},
 
@@ -241,7 +241,7 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 					// Different context root, recursively unload all related contextes and move context its parent
 					context = $self.unload(sharedContext);
 				} else {
-					// Same context, no fragment to load at this point, continue to the next hoerarchy index
+					// Same context, no fragment to load at this point, continue to the next hierarchy index
 					if (fragments.length <= hindex) {
 						// Add fragment from the validated and yet not explicitly
 						fragments.push(sharedContext.$fragment);
