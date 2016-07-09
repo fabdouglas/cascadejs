@@ -37,7 +37,7 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 		callbacks: [],
 
 		/**
-		 * Teh default view builder to use to build the view from the given context.
+		 * The default view builder to use to build the view from the given context.
 		 * @param  {object} context     The current context with injected '$messages', and ''$template'
 		 * @return {string}             The string representing the view code to associate to the context and to inject in the correct place in the
 		 *                              parent.
@@ -65,6 +65,10 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 			for (var module in requiredList) {
 				if ({}.hasOwnProperty.call(requiredList, module) && $self.shouldUndef(requiredList[module])) {
 					$self.undef(requiredList[module]);
+					if (module === 'css') {
+						// Also remove the link from the head since RequireJs does not support it
+						$('link[data-requiremodule="' + requiredList[module].substr(4) + '"]').remove();
+					}
 				}
 			}
 		},
@@ -238,7 +242,7 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 			if (sharedContext) {
 				if (sharedContext.$fragment && sharedContext.$fragment !== fragments[hindex] &&
 					((typeof fragments[hindex] !== 'undefined') || sharedContext.$fragment !== (sharedContext.$parent.$home || 'home'))) {
-					// Different context root, recursively unload all related contextes and move context its parent
+					// Different context root, recursively unload all related contexts and move context its parent
 					context = $self.unload(sharedContext);
 				} else {
 					// Same context, no fragment to load at this point, continue to the next hierarchy index
@@ -289,7 +293,7 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 		 * Load CSS, i18n, template and controller from the provided data. Extended i18n messages will also be
 		 * merged into the parent and in the closest page in addition. So, unloading this module will not
 		 * remove these extension. This is a complete merge of i18n properties. The template, CSS and
-		 * controller will be inserted into a private zone, and will be removed whith the parent on its unload.
+		 * controller will be inserted into a private zone, and will be removed with the parent on its unload.
 		 * @param {object} context  The parent context to use.
 		 * @param {String} home     The home URL of module to load. CSS, HTML, i18n and controller will be loaded from this base.
 		 * @param {String} id       The module identifier. Used to determine the base file name inside the home URL.
@@ -300,7 +304,7 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 		 *                                                       "$template" already injected in the created context.
 		 *                                                       The return will be placed in the parent view and injected into the context as
 		 *                                                       $view.
-		 *                            - {jQuery} $parentElement  Parent jQUery that will dirrectly contains the view and would become the new
+		 *                            - {jQuery} $parentElement  Parent jQUery that will directly contains the view and would become the new
 		 *                                                       view of this load.
 		 *                                                       When undefined, the created view will be inside the previous container's view
 		 *                                                       inside a wrapper with an unique identifier based on home and the formal
@@ -309,26 +313,26 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 		 *                            - {boolean} reload         When "true" the previous identical view is removed, along the CSS and controller
 		 *                                                       before this new load.
 		 *                                                       The match is based on the built identifier placed in the view.
-		 *                            - {string} fragment        Related url fragment part associated to this context.
+		 *                            - {string} fragment        Related URL fragment part associated to this context.
 		 *                            - {boolean} loadCss        When "true" the CSS file will be loaded and placed in the head of the document.
-		 *                            - {boolean} loadI18n       When "true" the internationalization files will be loaded and merged withe the
+		 *                            - {boolean} loadI18n       When "true" the internationalization files will be loaded and merged with the
 		 *                                                       messages from the parent hierarchy of context using LIFO priority for
 		 *                                                       resolution.
 		 *                            - {boolean} loadHtml       When "true" the HTML file will be loaded and compiled with Handlebars and i18n
 		 *                                                       messages if loaded.
 		 *                            - {boolean} loadController When "true" the JS file will be loaded and "initialize" function if defined will
 		 *                                                       be called. When this function is called, view is already placed in the document,
-		 *                                                       css is loaded, and "$current" context fully built with all componentes injected.
-		 *                                                       This function wil also receive the non consumed URL fragments array that could
+		 *                                                       CSS is loaded, and "$current" context fully built with all components injected.
+		 *                                                       This function will also receive the non consumed URL fragments array that could
 		 *                                                       be considered as parameters.
 		 *                            - {integer} hindex         When defined (>=0) without "$parentElement", will be used to resolve the parent
 		 *                                                       element and will be used as "$parentElement".
-		 *                                                       May also be usefull for CSS selectors to change the display of component
+		 *                                                       May also be useful for CSS selectors to change the display of component
 		 *                                                       depending the placement inside the hierarchy.
 		 *                                                       The CSS selector (where X corresponds to hdindex) used to resolve this parent
 		 *                                                       will be: #_hierarchy-X,[data-cascade-hierarchy=X],.data-cascade-hierarchy-X
 		 *                            - {object} data            Data to save in the new context inside "$data".
-		 *                            - {string} parameters      Parameters as string to pass to the controler during the initialization.
+		 *                            - {string} parameters      Parameters as string to pass to the controller during the initialization.
 		 */
 		loadFragment: function (context, transaction, home, id, options) {
 			home = home.replace(/\/$/, '');
@@ -337,7 +341,7 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 			// Load with AMD the resources
 			var requireMessages = 'i18n!' + home + '/nls/messages';
 			var requireHtml = 'text!' + base + '.html';
-			var requireCss = 'css!' + base + '.css';
+			var requireCss = 'css!' + base;
 			var requireController = base;
 			require([
 				options.loadHtml ? requireHtml : 'ready!', // Template part
@@ -433,7 +437,7 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 
 		/**
 		 * Load partials from a markup definition, inject the compiled template HTML inside the current element with loaded i18n file, load the CSS and initialize the controller.
-		 * 'data-ajax' attribute defines the identifier of resources to load. Is used to build the base name of html, js,... and also used as an idenfier built withe the identifier of containing view.
+		 * 'data-ajax' attribute defines the identifier of resources to load. Is used to build the base name of HTML, JS,... and also used as an identifier built with the identifier of containing view.
 		 * 'data-ajax-load' attribute defines the resources to be loaded. By default the HTML template is loaded and injected inside the current element.
 		 */
 		loadPartial: function (context) {
@@ -499,9 +503,9 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 		},
 
 		/**
-		 * Prapagate the transaction from current context to parent context.
+		 * Propagate the transaction from current context to parent context.
 		 * @param context : Context to update.
-		 * @param transaction : Transaction identifier to propage to the hierarchy.
+		 * @param transaction : Transaction identifier to propagate to the hierarchy.
 		 */
 		propagateTransaction: function (context, transaction) {
 			context.$parent && $self.propagateTransaction(context.$parent, transaction);
@@ -572,7 +576,7 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 			});
 
 			$.fn.htmlNoStub = $.fn.html;
-			// Stub the html update to complete DOM with post-actions
+			// Stub the HTML update to complete DOM with post-actions
 			var originalHtmlMethod = $.fn.html;
 			$.fn.extend({
 				html: function () {
@@ -612,7 +616,7 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 		},
 
 		/**
-		 * Return the nested hierarical container inside the view of current context. The used CSS selector (where X corresponds to hdindex) used to resolve this parent will be:
+		 * Return the nested hierarchical container inside the view of current context. The used CSS selector (where X corresponds to hdindex) used to resolve this parent will be:
 		 * #_hierarchy-X,[data-cascade-hierarchy=X],.data-cascade-hierarchy-X
 		 * @param  {object} context The context to complete.
 		 * @param  {integer} hindex Optional hierarchical index to lookup. When undefined, will use the one of provided context plus one.
