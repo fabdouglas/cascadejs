@@ -1,10 +1,39 @@
 /*!
- * Cascade v0.0.1 (https://github.com/fabdouglas/cascadejs)
+ * Cascade v0.0.2 (https://github.com/fabdouglas/cascadejs)
  * Copyright 2016 Fabrice Daugan.
  * Licensed under the MIT license
  */
-define(['jquery', 'hashchange/hashchange'], function ($) {
+define([
+	'jquery', 'hashchange/hashchange'
+], function ($) {
 	var $self = {
+
+		/**
+		 * Protected, and also injected properties inside the contexts.
+		 * @type {Array}
+		 */
+		protected: [
+			'$parent',
+			'$page',
+			'$messages',
+			'$require',
+			'$view',
+			'$path',
+			'$url',
+			'$data',
+			'$hindex',
+			'$fragment',
+			'$parameters',
+			'$template'
+		],
+
+		/**
+		 * API functions copied to the new context and pointing to the functions of cascade.
+		 * @type {Array}
+		 */
+		apiFunctions: [
+			'closest', 'super'
+		],
 
 		/**
 		 * Current context hierarchy. Correspond to the last loaded context. $parent targets the ancestor context.
@@ -37,76 +66,16 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 		callbacks: [],
 
 		/**
-		 * The default view builder to use to build the view from the given context.
-		 * @param  {object} context     The current context with injected '$messages', and ''$template'
-		 * @return {string}             The string representing the view code to associate to the context and to inject in the correct place in the
-		 *                              parent.
+		 * Unload all modules of given context from the AMD. The modules are unloaded in the reverse order of the associated loaded plugin.
+		 * @param  {context}  Context to undefine modules
 		 */
-		viewBuilder: function (context) {
-			return context.$template ? context.$template(context.$messages) : '';
-		},
-
-		/**
-		 * AMD function to use to unload the given module.
-		 * @type {function}
-		 */
-		undef: requirejs.undef,
-
-		/**
-		 * Unload the given module from the AMD.
-		 * @param  {string}  module Module path as used to load the corresponding module.
-		 * @param  {boolean} True when the module should be undefined.
-		 */
-		shouldUndef: function (module) {
-			return !module.startsWith('text!') && !module.startsWith('i18n!');
-		},
-
-		undefModules: function (requiredList) {
-			for (var module in requiredList) {
-				if ({}.hasOwnProperty.call(requiredList, module) && $self.shouldUndef(requiredList[module])) {
-					$self.undef(requiredList[module]);
-					if (module === 'css') {
-						// Also remove the link from the head since RequireJs does not support it
-						$('link[data-requiremodule="' + requiredList[module].substr(4) + '"]').remove();
-					}
-				}
+		undefModules: function (context) {
+			for (var index = context.$plugins.length; index-- > 0;) {
+				var plugin = context.$plugins[index];
+				var configuration = $self.plugins[plugin].unload;
+				// Call the unload controller if defined for this plugin
+				configuration && configuration.controller && configuration.controller(context.$require[plugin], context);
 			}
-		},
-
-		/**
-		 * Build an extended messages from the given messages and the parent messages discovered in the
-		 * provided context.
-		 */
-		buildMessages: function (context, rawMessages) {
-			var parentMessages = {};
-
-			// Get the previously
-			if (context.$parent) {
-				parentMessages = context.$parent.$mergedMessages || {};
-				// Propagate the messages to parent
-				$self.propagateMessages(context.$parent, rawMessages);
-			}
-
-			// Create the messages merged from parents and future children. No injected context.
-			context.$mergedMessages = {};
-			$.extend(true, context.$mergedMessages, parentMessages, rawMessages);
-
-			// Create the final merged messages and would contains injected context.
-			var messages = {};
-			context.$messages = messages;
-			$.extend(true, messages, context.$mergedMessages);
-
-			// Complete the messages with the context
-			messages.$current = context;
-			messages.$cascade = $self;
-
-			// Share thins finest messages
-			$self.$messages = messages;
-		},
-
-		propagateMessages: function (context, messages) {
-			$.extend(true, context.$messages, messages);
-			context.$parent && $self.propagateMessages(context.$parent, messages);
 		},
 
 		/**
@@ -132,7 +101,7 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 
 			// Finally undefine the AMD modules
 			context.$unloaded = true;
-			$self.undefModules(context.$require);
+			$self.undefModules(context);
 			return context.$parent;
 		},
 
@@ -204,7 +173,7 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 
 		securedZoneLoader: function (context, transaction, fragments, reload) {
 			$self.loadFragmentRecursive(context, transaction, fragments, 1, reload, function (childContext) {
-				// Private zone
+				// Private zone and modules
 				require(['zone-private'], function () {
 					// Load the remaining context hierarchy
 					$self.loadFragmentRecursive(context.$child || childContext, transaction, fragments, 2, reload);
@@ -240,8 +209,7 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 			var parent = hierarchy[hindex - 1];
 			var sharedContext = hierarchy[hindex];
 			if (sharedContext) {
-				if (sharedContext.$fragment && sharedContext.$fragment !== fragments[hindex] &&
-					((typeof fragments[hindex] !== 'undefined') || sharedContext.$fragment !== (sharedContext.$parent.$home || 'home'))) {
+				if (sharedContext.$fragment && sharedContext.$fragment !== fragments[hindex] && ((typeof fragments[hindex] !== 'undefined') || sharedContext.$fragment !== (sharedContext.$parent.$home || 'home'))) {
 					// Different context root, recursively unload all related contexts and move context its parent
 					context = $self.unload(sharedContext);
 				} else {
@@ -274,11 +242,8 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 
 			// At least one fragment need to be loaded
 			var id = fragments[hindex];
+
 			$self.loadFragment(parent, transaction, ((parent.$path || '') + '/').replace(/^\//, '') + id, id, {
-				loadHtml: true,
-				loadI18n: true,
-				loadController: true,
-				loadCss: true,
 				fragment: id,
 				reload: reload,
 				hindex: hindex,
@@ -289,42 +254,50 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 			});
 		},
 
+		loadFragment: function (context, transaction, home, id, options) {
+			options.plugins = options.plugins || $self.plugins.default;
+			$self.loadPlugins(options.plugins, function () {
+				$self.loadFragmentInternal(context, transaction, home, id, options);
+			});
+		},
+
+		loadPlugins: function (plugins, callback) {
+			var requiredPath = [];
+			var requiredNames = [];
+			for (var index = 0; index < plugins.length; index++) {
+				var plugin = plugins[index];
+				if (typeof $self.plugins[plugin] === 'undefined') {
+					// This plugin has not yet been loaded
+					requiredPath.push('plugins/' + plugin);
+					requiredNames.push(plugin);
+				}
+			}
+			if (requiredPath.length) {
+				require(requiredPath, function () {
+					for (var index = 0; index < requiredPath.length; index++) {
+						var $plugin = arguments[index];
+						$plugin.$cascade = $self;
+						$self.plugins[requiredNames[index]] = $plugin;
+						$plugin.intialize && $plugin.initialize();
+					}
+					callback && callback();
+				});
+			} else {
+				callback && callback();
+			}
+		},
+
 		/**
-		 * Load CSS, i18n, template and controller from the provided data. Extended i18n messages will also be
-		 * merged into the parent and in the closest page in addition. So, unloading this module will not
-		 * remove these extension. This is a complete merge of i18n properties. The template, CSS and
-		 * controller will be inserted into a private zone, and will be removed with the parent on its unload.
+		 * For each enabled plugins, load the associated module of the given <code>id</code> and <code>home</code>. The plugin order is important
+		 * because of the UX. For sample, a "css" plugin should be loaded before an html. In addition this order ensure the reversed unload to
+		 * make the HTML unloaded before the CSS and avoid a displayed dirty HTML.
 		 * @param {object} context  The parent context to use.
 		 * @param {String} home     The home URL of module to load. CSS, HTML, i18n and controller will be loaded from this base.
 		 * @param {String} id       The module identifier. Used to determine the base file name inside the home URL.
-		 * @param {object} options  Optional options :
+		 * @param {object} options  Optional options in addition of the ones defined in each plugin :
 		 *                            - {function} callback      Callback when all modules are loaded, controller is initialized.
-		 *                            - {function} viewBuilder   Builder function replacing the default view built from template and messages.
-		 *                                                       When defined, the function will be called with the newly created context with
-		 *                                                       "$template" already injected in the created context.
-		 *                                                       The return will be placed in the parent view and injected into the context as
-		 *                                                       $view.
-		 *                            - {jQuery} $parentElement  Parent jQUery that will directly contains the view and would become the new
-		 *                                                       view of this load.
-		 *                                                       When undefined, the created view will be inside the previous container's view
-		 *                                                       inside a wrapper with an unique identifier based on home and the formal
-		 *                                                       parameter "id". In this case, the parent view may contains several siblings
-		 *                                                       having the view as container.
-		 *                            - {boolean} reload         When "true" the previous identical view is removed, along the CSS and controller
-		 *                                                       before this new load.
-		 *                                                       The match is based on the built identifier placed in the view.
 		 *                            - {string} fragment        Related URL fragment part associated to this context.
-		 *                            - {boolean} loadCss        When "true" the CSS file will be loaded and placed in the head of the document.
-		 *                            - {boolean} loadI18n       When "true" the internationalization files will be loaded and merged with the
-		 *                                                       messages from the parent hierarchy of context using LIFO priority for
-		 *                                                       resolution.
-		 *                            - {boolean} loadHtml       When "true" the HTML file will be loaded and compiled with Handlebars and i18n
-		 *                                                       messages if loaded.
-		 *                            - {boolean} loadController When "true" the JS file will be loaded and "initialize" function if defined will
-		 *                                                       be called. When this function is called, view is already placed in the document,
-		 *                                                       CSS is loaded, and "$current" context fully built with all components injected.
-		 *                                                       This function will also receive the non consumed URL fragments array that could
-		 *                                                       be considered as parameters.
+		 *                            - {array} plugins          Enabled plugin names for this fragment. When undefined, the default plugins are used.
 		 *                            - {integer} hindex         When defined (>=0) without "$parentElement", will be used to resolve the parent
 		 *                                                       element and will be used as "$parentElement".
 		 *                                                       May also be useful for CSS selectors to change the display of component
@@ -334,55 +307,24 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 		 *                            - {object} data            Data to save in the new context inside "$data".
 		 *                            - {string} parameters      Parameters as string to pass to the controller during the initialization.
 		 */
-		loadFragment: function (context, transaction, home, id, options) {
-			home = home.replace(/\/$/, '');
-			var base = home + '/' + id;
+		loadFragmentInternal: function (context, transaction, home, id, options) {
+			options.home = home.replace(/\/$/, '');
+			options.base = options.home + '/' + id;
+			options.id = id;
+			options.context = context;
+
+			// Build the required modules
+			var index;
+			var requireJsModules = [];
+			for (index = 0; index < options.plugins.length; index++) {
+				var plugin = $self.plugins[options.plugins[index]];
+				requireJsModules.push(plugin.load.require(options));
+			}
 
 			// Load with AMD the resources
-			var requireMessages = 'i18n!' + home + '/nls/messages';
-			var requireHtml = 'text!' + base + '.html';
-			var requireCss = 'css!' + base;
-			var requireController = base;
-			require([
-				options.loadHtml ? requireHtml : 'ready!', // Template part
-				options.loadI18n ? requireMessages : 'ready!', // Messages part
-				options.loadController ? requireController : 'ready!', // Controller part
-				options.loadCss ? requireCss : 'ready!' // CSS part, injected in HEAD. Not manually managed.
-			], function (template, messages, $current) {
+			require(requireJsModules, function () {
 				// Check the context after this AMD call
 				if (!$self.isSameTransaction(transaction)) {
-					return;
-				}
-
-				// Find the right UI parent
-				var $parentElement = options.$parentElement;
-				var createdSibling = false;
-				var siblingMode = false;
-				if (((typeof $parentElement) !== 'object' || $parentElement.length === 0) && options.hindex >= 0) {
-					$parentElement = $self.findNextContainer(context, options.hindex);
-				}
-
-				// Clean the resolution and reject empty parent
-				if ((typeof $parentElement) !== 'object' || $parentElement.length === 0) {
-					// No valid parent found, we will add the new UI inside the context's view as a wrapped child node
-					var viewId = '_module-' + base;
-					siblingMode = true;
-					$parentElement = _(viewId);
-					if ($parentElement.length === 0) {
-						// Create the wrapper
-						createdSibling = true;
-						$parentElement = $('<div id="' + viewId + '"></div>');
-						context.$view.append($parentElement);
-					}
-				}
-
-				// Clean the previous state
-				if (options.reload) {
-					// Invalidate the previous view
-					$parentElement.empty();
-				} else if (siblingMode && !createdSibling) {
-					// Call only the callback, nothing has been unloaded or created
-					options.callback && options.callback($current);
 					return;
 				}
 
@@ -390,44 +332,38 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 				var url = home.split('/');
 				url.shift();
 
-				// Configure the new context
-				$current = $self.failSafeContext($current || {}, context, transaction);
-				$current.$view = $parentElement;
-				$current.$path = home;
-				$current.$url = '#/' + url.join('/');
-				$current.$data = options.data;
-				$current.$hindex = options.hindex;
-				$current.$fragment = options.fragment;
-				$current.$parameters = options.parameters;
-				$current.$template = template && Handlebars.compile(template);
-				$current.$require = {
-					messages: requireMessages,
-					view: requireHtml,
-					css: requireCss,
-					controller: requireController
-				};
-
-				// Complete the hierarchy
-				if (siblingMode) {
-					// Include without adding an element in the hierarchy, title is unchanged
-					$current.$page = context.$page || context;
-					context.$siblings.push($current);
-				} else {
-					// Share this context
-					$self.$current = $current;
-					context.$child = $current;
+				// Associate the requireJs module to the load plugin
+				var resolved = {};
+				var $require = {};
+				for (index = 0; index < options.plugins.length; index++) {
+					$require[options.plugins[index]] = requireJsModules[index];
+					resolved[options.plugins[index]] = arguments[index];
 				}
 
-				// Build the messages with inheritance
-				$self.buildMessages($current, messages || {});
+				// Configure the new context
+				var $current = $.extend($self.failSafeContext(resolved.js || {}, context, transaction), {
+					$path: home,
+					$cascade: $self,
+					$url: '#/' + url.join('/'),
+					$data: options.data,
+					$hindex: options.hindex,
+					$fragment: options.fragment,
+					$parameters: options.parameters,
+					$plugins: options.plugins,
+					$require: $require
+				});
+				$self.copyAPI($current);
 
-				if (!siblingMode && $current.$messages.title) {
-					// Title has been redefined at this level
-					document.title = $current.$messages.title;
+				// Process each plugin
+				var skipContext = false;
+				for (index = 0; index < options.plugins.length; index++) {
+					skipContext |= ($self.plugins[options.plugins[index]].load.controller || $.noop)(arguments[index], options, $current);
+				}
+				if (skipContext) {
+					return true;
 				}
 
 				// Insert the compiled view in the wrapper
-				$current.$view.off().empty().html((options.viewBuilder || $self.viewBuilder)($current));
 				$self.trigger('fragment-' + id, context, context);
 
 				// Initialize the controller
@@ -436,27 +372,98 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 		},
 
 		/**
+		 * Supported plugins of cascade.
+		 * @type {Object}
+		 */
+		plugins: {
+			/**
+			 * Ordered plugins to load by default. Unload will be processed in the reversed order.
+			 * @type {Array}
+			 */
+		},
+
+		/**
+		 * Copy and proxy API function of this loader to the the target context.
+		 * @param  {context} $context Target context.
+		 */
+		copyAPI: function ($context) {
+			for (var index = 0; index < $self.apiFunctions.length; index++) {
+				var api = $self.apiFunctions[index];
+				$context['$' + api] = $self.proxy($context, $self[api]);
+			}
+		},
+
+		/**
+		 * Simple proxy adding the current context to the first parameter.
+		 * @param  {object} $context Current context.
+		 * @param  {function} func     Real function to call.
+		 * @return {function}          Proxy function.
+		 */
+		proxy: function ($context, func) {
+			return function () {
+				var args = Array.prototype.slice.call(arguments);
+				args.unshift($context);
+				return func.apply($context, args);
+			};
+		},
+
+		/**
+		 * Share context of "from" with the formal "to object. All injectected CascadeJS properties are copied, and only these ones.
+		 * @param  {object} from Source context containing injected properties.
+		 * @param  {object} to   Target context to fill.
+		 */
+		shareContext: function (from, to) {
+			for (var i = 0; i < $self.protected.length; i++) {
+				to[$self.protected[i]] = from[$self.protected[i]];
+			}
+			to.$page = from;
+		},
+
+		/**
 		 * Load partials from a markup definition, inject the compiled template HTML inside the current element with loaded i18n file, load the CSS and initialize the controller.
 		 * 'data-ajax' attribute defines the identifier of resources to load. Is used to build the base name of HTML, JS,... and also used as an identifier built with the identifier of containing view.
-		 * 'data-ajax-load' attribute defines the resources to be loaded. By default the HTML template is loaded and injected inside the current element.
+		 * 'data-plugins' attribute defines the resources to be loaded. By default the HTML template is loaded and injected inside the current element.
+		 * @param {function} callback Optional callback when partial is loaded.
 		 */
-		loadPartial: function (context) {
-			var $target;
-			if ((typeof context.$fragments) === 'undefined') {
-				context = $self.$current;
-				$target = $(this);
-			} else {
-				$target = context.$view;
-			}
+		loadPartial: function (callback, $parent) {
+			var $target = $(this);
+			var context = $self.$current;
+			callback = typeof callback === 'function' ? callback : null;
 
 			// Get the resource to load : HTML, CSS, JS, i28N ? By default the HTML is loaded
-			var load = ($target.attr('data-ajax-load') || 'html').split(',');
-			$self.loadFragment(context, context.transaction, context.$path, $target.attr('data-ajax'), {
-				$parentElement: $target,
-				loadCss: $.inArray('css', load) >= 0,
-				loadHtml: $.inArray('html', load) >= 0,
-				loadI18n: $.inArray('i18n', load) >= 0,
-				loadController: $.inArray('js', load) >= 0
+			var plugins = ($target.attr('data-plugins') || 'html').split(',');
+			var id = $target.attr('data-ajax');
+			var home = context.$path;
+			if (id.charAt(0) === '/') {
+				// Absolute path for home
+				var index = id.lastIndexOf('/');
+				home = id.substr(1, index - 1);
+				id = id.substr(index + 1);
+				while (context && context.$path !== home) {
+					context = context.$parent;
+				}
+				if (context) {
+					// Parent context has been found, use it for this partial
+					var $parent = $('<div></div>');
+					context.$view.append($parent);
+				} else {
+					// Stop the navigation there, invalid context reference
+					traceLog('Invalid partial reference home "' + home + '" in not within the current context "' + $self.$current.$path + '"');
+					return;
+				}
+			} else {
+				$parent = $parent || $target;
+			}
+
+			// Sub module management
+			if ($(this).attr('data-cascade') === 'true') {
+				home += '/' + id;
+			}
+
+			$self.loadFragment(context, $self.$current.$transaction, home, id, {
+				$parentElement: $parent,
+				plugins: plugins,
+				callback: callback
 			});
 		},
 
@@ -465,15 +472,15 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 		 * @param transaction : Object or number
 		 */
 		isSameTransaction: function (transaction, context) {
-			return (transaction.$transaction === $self.transaction || transaction === $self.transaction) &&
-				(typeof (context || transaction).$unloaded === 'undefined');
+			return (transaction.$transaction === $self.transaction || transaction === $self.transaction) && (typeof (context || transaction).$unloaded === 'undefined');
 		},
 
 		/**
 		 * Start a new navigation transaction and returns its identifier.
 		 */
 		newTransaction: function () {
-			return ++$self.transaction;
+			$self.transaction++;
+			return $self.transaction;
 		},
 
 		failSafeContext: function (context, parent, transaction) {
@@ -488,7 +495,7 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 			context.$siblings = [];
 			if (parent) {
 				if (parent.$hindex === 0) {
-					// Set the top most real module as '$main'
+					// Set the top most real plugin as '$main'
 					context.$main = context;
 				} else {
 					context.$main = parent.$main;
@@ -518,19 +525,19 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 		 */
 		initializeContext: function (context, transaction, callback, parameters) {
 			// Initialize the module if managed
-			if ((typeof context !== 'undefined') && (typeof context.initialize === 'function')) {
+			if ((typeof context !== 'undefined') && (typeof context.$initializeTransaction === 'undefined')) {
 				$(function () {
 					if (!$self.isSameTransaction(transaction)) {
 						return;
 					}
-					$.proxy(context.initialize, context)(parameters);
+					(typeof context.initialize === 'function') && $.proxy(context.initialize, context)(parameters);
 
 					// Mark the context as initialized
 					context.$initializeTransaction = transaction;
 					callback && callback(context);
 				});
-			} else if (callback) {
-				callback(context);
+			} else {
+				callback && callback(context);
 			}
 		},
 
@@ -546,13 +553,13 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 			$to.append($spin);
 			setTimeout(function () {
 				$spin.addClass('in');
+				jQuery.contains(document, $spin[0]) && setTimeout(function () {
+					$spin.addClass('text-warning');
+					jQuery.contains(document, $spin[0]) && setTimeout(function () {
+						$spin.removeClass('text-warning').addClass('text-danger');
+					}, 7000);
+				}, 1500);
 			}, 1500);
-			setTimeout(function () {
-				$spin.addClass('text-warning');
-			}, 3000);
-			setTimeout(function () {
-				$spin.removeClass('text-warning').addClass('text-danger');
-			}, 10000);
 			return $to;
 		},
 
@@ -571,10 +578,9 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 		 */
 		initialize: function () {
 			this.isOldIE = $('html.ie-old').length;
-			$.ajaxSetup({
-				cache: false
-			});
+			$.ajaxSetup({cache: false});
 
+			$self.plugins.default = requirejs.s.contexts._.config.cascade;
 			$.fn.htmlNoStub = $.fn.html;
 			// Stub the HTML update to complete DOM with post-actions
 			var originalHtmlMethod = $.fn.html;
@@ -611,20 +617,44 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 			});
 		},
 
-		isFinal: function (context) {
-			return context.$final || $self.findNextContainer(context).length === 0;
+		super: function (context, item) {
+			return $self.closestFrom(context.$page, item) || $self.closestFrom(context.$parent, item);
 		},
 
 		/**
-		 * Return the nested hierarchical container inside the view of current context. The used CSS selector (where X corresponds to hdindex) used to resolve this parent will be:
-		 * #_hierarchy-X,[data-cascade-hierarchy=X],.data-cascade-hierarchy-X
-		 * @param  {object} context The context to complete.
-		 * @param  {integer} hindex Optional hierarchical index to lookup. When undefined, will use the one of provided context plus one.
-		 * @return {jquery}         A jQuery object of the found element. Only the first match is returned.
+		 * Return the closest defined property or object in the hierarchy, and starting from the current context.
+		 * @param  {object} context Current context.
+		 * @param  {string} item    Property or function name.
+		 * @return {object}         The first defined property or function in the hierarchy.
 		 */
-		findNextContainer: function (context, hindex) {
-			hindex = hindex || context.$hindex + 1;
-			return context.$view.find('#_hierarchy-' + hindex + ',[data-cascade-hierarchy="' + hindex + '"],.data-cascade-hierarchy-' + hindex).first();
+		closest: function (context, item) {
+			var property = context[item];
+			if (property && property instanceof jQuery) {
+				// Non empty jQuery object
+				return property.length ? property : $self.super(context, item);
+			}
+			return property || $self.super(context, item);
+		},
+		closestFrom: function (context, item) {
+			if (context) {
+				var owner = $self.closest(context, item);
+				if (typeof owner === 'undefined' && context.$siblings) {
+					owner = $self.closestFromSiblings(context.$siblings, item);
+				}
+				return owner;
+			}
+		},
+		closestFromSiblings: function (siblings, item) {
+			for (var index = 0; index < siblings.length; index++) {
+				var owner = $self.closest(siblings[index], item);
+				if (typeof owner !== 'undefined') {
+					return owner;
+				}
+			}
+		},
+
+		isFinal: function (context) {
+			return context.$final || ($self.plugins.html && $self.plugins.html.findNextContainer(context).length === 0);
 		},
 
 		finalize: function (context, parameters, transaction) {
@@ -634,18 +664,23 @@ define(['jquery', 'hashchange/hashchange'], function ($) {
 				$self.propagateTransaction(context, transaction);
 
 				// Check the parameters change
-				if ((context.$parameters || '') !== (parameters || '')) {
-					// Save the new parameters and trigger the change event
-					context.$parameters = parameters;
-					if ((typeof context.onHashChange) === 'function' && context.$initializeTransaction && context.$initializeTransaction !== transaction) {
-						// Parameters are managed by the current module
-						$.proxy(context.onHashChange, context)(parameters);
-					}
-				}
+				$self.handleInternalChange(context, parameters, transaction);
 				$self.trigger('hash', context.$url + (parameters ? '/' + parameters : ''), context);
 				return true;
 			}
+			$self.handleInternalChange(context, parameters, transaction);
 			return false;
+		},
+
+		handleInternalChange: function (context, parameters, transaction) {
+			if ((context.$parameters || '') !== (parameters || '')) {
+				// Save the new parameters and trigger the change event
+				context.$parameters = parameters;
+				if ((typeof context.onHashChange) === 'function' && context.$initializeTransaction && context.$initializeTransaction !== transaction) {
+					// Parameters are managed by the current plugin
+					$.proxy(context.onHashChange, context)(parameters);
+				}
+			}
 		},
 
 		register: function (event, listener) {
